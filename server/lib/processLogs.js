@@ -18,44 +18,45 @@ module.exports = (storage) =>
     }
 
     const now = Date.now();
-    let logstashUrl = config('LOGSTASH_URL');
-
-    if (config('LOGSTASH_TOKEN')) {
-      const parsedUrl = url.parse(logstashUrl);
-      logstashUrl = (parsedUrl.query) ? `${logstashUrl}&token=${config('LOGSTASH_TOKEN')}` : `${logstashUrl}?token=${config('LOGSTASH_TOKEN')}`;
-    }
+    const baseUrl = config('ELASTICSEARCH_URL');
 
     const sendLog = function (log, callback) {
       if (!log) {
         return callback();
       }
 
-      const index = config('LOGSTASH_INDEX');
+      const logDate = moment(log.date).format("YYYY.MM.DD");
+      const indexSecret = config("ELASTICSEARCH_INDEX");
+      const elasticsearchIndex = `${indexSecret}-${logDate}` || `auth0-${logDate}`;
+      const type = config('ELASTICSEARCH_TYPE');
       const data = {
         post_date: now,
         type_description: loggingTools.logTypes.get(log.type)
       };
 
       Object.keys(log).forEach((key) => {
-        data[key] = log[key];
+        if (key === "_id") {
+          data["log_id"] = log[key];
+        } else {
+          data[key] = log[key];
+        }
       });
 
-      data[index] = log[index] || 'auth0';
       data.message = JSON.stringify(log);
 
       const options = {
         method: 'POST',
         timeout: 2000,
-        url: logstashUrl,
+        url: url.resolve(baseUrl, elasticsearchIndex, type),
         headers: { 'cache-control': 'no-cache', 'content-type': 'application/json' },
         body: data,
         json: true
       };
 
-      if (config('LOGSTASH_USER') && config('LOGSTASH_PASSWORD')) {
+      if (config('ELASTICSEARCH_USER') && config('ELASTICSEARCH_PASSWORD')) {
         options['auth'] = {
-          user: config('LOGSTASH_USER'),
-          pass: config('LOGSTASH_PASSWORD'),
+          user: config('ELASTICSEARCH_USER'),
+          pass: config('ELASTICSEARCH_PASSWORD'),
           sendImmediately: true
         }
       }
@@ -71,12 +72,12 @@ module.exports = (storage) =>
         return callback();
       }
 
-      logger.info(`Sending ${logs.length} logs to Logstash.`);
+      logger.info(`Sending ${logs.length} logs to Elasticsearch.`);
 
       async.eachLimit(logs, 10, sendLog, callback);
     };
 
-    const slack = new loggingTools.reporters.SlackReporter({ hook: config('SLACK_INCOMING_WEBHOOK_URL'), username: 'auth0-logs-to-logstash', title: 'Logs To Logstash' });
+    const slack = new loggingTools.reporters.SlackReporter({ hook: config('SLACK_INCOMING_WEBHOOK_URL'), username: 'auth0-logs-to-elasticsearch', title: 'Logs To Elasticsearch' });
 
     const options = {
       domain: config('AUTH0_DOMAIN'),
